@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """
-Claude User Input Logger Hook
-
-Captures and logs all user inputs to Claude Code with timestamps and session tracking.
-This hook extracts user messages from conversation transcripts and provides organized logging.
-
-Author: Claude & Cristian Bucurenciu
-Version: 1.0.0
-License: MIT
+Optimized User Input Logger for Claude Code.
+Captures user messages with duplicate detection and clean formatting.
+Only logs actual user input, no noise.
 """
 import json
 import sys
@@ -15,27 +10,9 @@ from datetime import datetime
 from pathlib import Path
 
 
-# Configuration
-CONFIG = {
-    'max_transcript_lines': 20,     # Number of transcript lines to check for user messages
-    'max_messages_per_capture': 3,  # Maximum messages to capture per hook trigger
-    'min_message_length': 10,       # Minimum message length to capture
-    'log_retention_days': 30,       # Days to retain log files (not implemented yet)
-    'enable_daily_logs': True,      # Create separate daily log files
-    'enable_statistics': True,      # Track usage statistics
-}
-
-
 def extract_user_messages_from_transcript(transcript_path, session_id):
     """
     Extract recent user messages from the conversation transcript file.
-    
-    Args:
-        transcript_path (str): Path to the JSONL transcript file
-        session_id (str): Current session ID for filtering
-    
-    Returns:
-        list: List of recent user messages
     """
     user_messages = []
     
@@ -44,11 +21,11 @@ def extract_user_messages_from_transcript(transcript_path, session_id):
             return user_messages
             
         # Read the last few lines of the JSONL file to get recent messages
-        with open(transcript_path, 'r', encoding='utf-8') as f:
+        with open(transcript_path, 'r') as f:
             lines = f.readlines()
             
-        # Check recent lines for user messages
-        for line in lines[-CONFIG['max_transcript_lines']:]:
+        # Check last 20 lines for user messages
+        for line in lines[-20:]:
             try:
                 entry = json.loads(line.strip())
                 
@@ -79,29 +56,21 @@ def extract_user_messages_from_transcript(transcript_path, session_id):
                         if (not text.startswith('<command-') and 
                             not text.startswith('Stop hook feedback') and
                             not text.startswith('[Request interrupted') and
-                            not text.startswith('Caveat:') and
-                            len(text) >= CONFIG['min_message_length']):
+                            len(text) > 10):  # Skip very short messages
                             user_messages.append(text)
                         
             except (json.JSONDecodeError, KeyError, AttributeError):
                 continue
                 
     except Exception:
-        # Fail silently to avoid breaking Claude Code functionality
         pass
         
-    return user_messages[-CONFIG['max_messages_per_capture']:] if user_messages else []
+    return user_messages[-3:] if user_messages else []  # Return last 3 messages
 
 
 def extract_user_context(input_data):
     """
-    Extract user input/context from the JSON data and transcript.
-    
-    Args:
-        input_data (dict): Hook input data from Claude Code
-    
-    Returns:
-        dict: Dictionary containing user context data
+    Extract potential user input/context from the JSON data and transcript.
     """
     user_context = {}
     
@@ -114,7 +83,7 @@ def extract_user_context(input_data):
         if recent_messages:
             user_context['recent_user_messages'] = recent_messages
     
-    # Check for any direct user fields in the JSON (fallback)
+    # Still check for any direct user fields in the JSON
     potential_user_fields = [
         'user_message', 'message', 'prompt', 'input', 'context', 
         'user_input', 'query', 'request', 'content', 'text',
@@ -128,94 +97,33 @@ def extract_user_context(input_data):
     return user_context
 
 
-def create_log_entry(timestamp, session_id, tool_name, user_context):
-    """
-    Create a formatted log entry.
-    
-    Args:
-        timestamp (str): Formatted timestamp
-        session_id (str): Session identifier
-        tool_name (str): Name of the tool that triggered the hook
-        user_context (dict): User context data
-    
-    Returns:
-        str: Formatted log entry
-    """
-    if user_context:
-        context_str = " | ".join([
-            f"{k}: {str(v)[:200]}..." if len(str(v)) > 200 else f"{k}: {v}" 
-            for k, v in user_context.items()
-        ])
-        return f"[{timestamp}] [{session_id[:8]}] Tool: {tool_name} | User Context: {context_str}\n"
-    else:
-        return f"[{timestamp}] [{session_id[:8]}] Tool: {tool_name} | No user context detected\n"
-
-
-def write_to_log_file(log_entry, log_file_path):
-    """
-    Write log entry to file with error handling.
-    
-    Args:
-        log_entry (str): The log entry to write
-        log_file_path (Path): Path to the log file
-    """
+def load_recent_messages():
+    """Load recent messages to prevent duplicates."""
+    recent_file = Path.home() / '.claude' / 'hooks' / 'recent-messages.json'
     try:
-        # Ensure directory exists
-        log_file_path.parent.mkdir(exist_ok=True, parents=True)
-        
-        with open(log_file_path, 'a', encoding='utf-8') as f:
-            f.write(log_entry)
-    except Exception as e:
-        print(f"Warning: Could not write to log file {log_file_path}: {e}", file=sys.stderr)
-
-
-def update_statistics(tool_name, user_context):
-    """
-    Update usage statistics.
-    
-    Args:
-        tool_name (str): Name of the tool that triggered the hook
-        user_context (dict): User context data
-    """
-    if not CONFIG['enable_statistics']:
-        return
-    
-    stats_file = Path.home() / '.claude' / 'hooks' / 'user-input-stats.json'
-    
-    try:
-        stats = {}
-        if stats_file.exists():
-            with open(stats_file, 'r', encoding='utf-8') as f:
-                stats = json.load(f)
-        
-        # Track tool triggers and user context frequency
-        stats['total_interactions'] = stats.get('total_interactions', 0) + 1
-        stats['tools_triggered'] = stats.get('tools_triggered', {})
-        stats['tools_triggered'][tool_name] = stats['tools_triggered'].get(tool_name, 0) + 1
-        
-        if user_context:
-            stats['interactions_with_context'] = stats.get('interactions_with_context', 0) + 1
-            stats['context_fields_found'] = stats.get('context_fields_found', {})
-            for field in user_context.keys():
-                stats['context_fields_found'][field] = stats['context_fields_found'].get(field, 0) + 1
-        
-        # Ensure directory exists
-        stats_file.parent.mkdir(exist_ok=True, parents=True)
-        
-        with open(stats_file, 'w', encoding='utf-8') as f:
-            json.dump(stats, f, indent=2)
-    
+        if recent_file.exists():
+            with open(recent_file, 'r') as f:
+                return json.load(f)
     except Exception:
-        # Fail silently to avoid breaking Claude Code functionality
+        pass
+    return []
+
+
+def save_recent_messages(messages):
+    """Save recent messages for duplicate detection."""
+    recent_file = Path.home() / '.claude' / 'hooks' / 'recent-messages.json'
+    try:
+        # Keep only last 20 messages
+        messages = messages[-20:] if len(messages) > 20 else messages
+        with open(recent_file, 'w') as f:
+            json.dump(messages, f)
+    except Exception:
         pass
 
 
 def main():
-    """
-    Main hook function called by Claude Code.
-    """
     try:
-        # Read input from stdin
+        # Read input
         input_data = json.load(sys.stdin)
         
         # Extract basic info
@@ -223,25 +131,65 @@ def main():
         session_id = input_data.get('session_id', 'unknown')
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Extract user context from transcript
+        # Extract potential user context
         user_context = extract_user_context(input_data)
         
-        # Only log if we have meaningful data
-        if user_context or tool_name != 'unknown':
-            # Create log entry
-            log_entry = create_log_entry(timestamp, session_id, tool_name, user_context)
+        # Only proceed if we have actual user messages
+        if user_context and 'recent_user_messages' in user_context:
+            user_messages = user_context['recent_user_messages']
             
-            # Write to main log file
-            main_log_file = Path.home() / '.claude' / 'user-inputs-log.txt'
-            write_to_log_file(log_entry, main_log_file)
+            # Load recent messages for duplicate detection
+            recent_messages = load_recent_messages()
             
-            # Write to daily log if enabled
-            if CONFIG['enable_daily_logs']:
-                daily_log = Path.home() / '.claude' / 'hooks' / f"user-inputs-{datetime.now().strftime('%Y-%m-%d')}.log"
-                write_to_log_file(log_entry, daily_log)
+            # Filter out duplicates and process each message
+            new_messages = []
+            for message in user_messages:
+                if message not in recent_messages:
+                    new_messages.append(message)
+                    recent_messages.append(message)
+                    
+                    # Clean log format - just show the actual message
+                    log_entry = f"[{timestamp}] [{session_id[:8]}] {message}\n"
+                    
+                    # Main user inputs log
+                    log_file = Path.home() / '.claude' / 'user-inputs-log.txt'
+                    try:
+                        with open(log_file, 'a') as f:
+                            f.write(log_entry)
+                    except Exception as e:
+                        print(f"Warning: Could not write to user inputs log: {e}", file=sys.stderr)
+                    
+                    # Daily log
+                    daily_log = Path.home() / '.claude' / 'hooks' / f"user-inputs-{datetime.now().strftime('%Y-%m-%d')}.log"
+                    try:
+                        daily_log.parent.mkdir(exist_ok=True)
+                        with open(daily_log, 'a') as f:
+                            f.write(log_entry)
+                    except Exception:
+                        pass
             
-            # Update statistics
-            update_statistics(tool_name, user_context)
+            # Save updated recent messages if we had new ones
+            if new_messages:
+                save_recent_messages(recent_messages)
+                
+                # Track statistics only for new user messages
+                stats_file = Path.home() / '.claude' / 'hooks' / 'user-input-stats.json'
+                try:
+                    stats = {}
+                    if stats_file.exists():
+                        with open(stats_file, 'r') as f:
+                            stats = json.load(f)
+                    
+                    # Track only meaningful interactions with user input
+                    stats['total_interactions'] = stats.get('total_interactions', 0) + 1
+                    stats['tools_triggered'] = stats.get('tools_triggered', {})
+                    stats['tools_triggered'][tool_name] = stats['tools_triggered'].get(tool_name, 0) + 1
+                    stats['user_messages_logged'] = stats.get('user_messages_logged', 0) + len(new_messages)
+                    
+                    with open(stats_file, 'w') as f:
+                        json.dump(stats, f, indent=2)
+                except Exception:
+                    pass
         
     except json.JSONDecodeError:
         print("Error: Invalid JSON input", file=sys.stderr)
