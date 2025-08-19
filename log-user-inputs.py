@@ -129,6 +129,7 @@ def main():
         # Extract basic info
         tool_name = input_data.get('tool_name', 'unknown')
         session_id = input_data.get('session_id', 'unknown')
+        project_path = input_data.get('cwd', 'unknown')
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         # Extract potential user context
@@ -148,8 +149,8 @@ def main():
                     new_messages.append(message)
                     recent_messages.append(message)
                     
-                    # Clean log format - just show the actual message
-                    log_entry = f"[{timestamp}] [{session_id[:8]}] {message}\n"
+                    # Clean log format with project path
+                    log_entry = f"[{timestamp}] [{session_id[:8]}] [{project_path}] {message}\n"
                     
                     # Main user inputs log
                     log_file = Path.home() / '.claude' / 'user-inputs-log.txt'
