@@ -1,0 +1,36 @@
+{
+  "total_interactions": 156,
+  "tools_triggered": {
+    "Read": 45,
+    "Write": 32,
+    "Edit": 28,
+    "Bash": 25,
+    "TodoWrite": 12,
+    "Grep": 8,
+    "MultiEdit": 4,
+    "Glob": 2
+  },
+  "interactions_with_context": 94,
+  "context_fields_found": {
+    "recent_user_messages": 94
+  },
+  "session_summary": {
+    "first_interaction": "2025-08-19 09:15:22",
+    "last_interaction": "2025-08-19 17:43:18",
+    "active_sessions": 3,
+    "most_active_hour": 14,
+    "capture_success_rate": 0.603
+  },
+  "message_analytics": {
+    "avg_message_length": 47,
+    "longest_message": 243,
+    "shortest_message": 12,
+    "common_topics": [
+      "React components",
+      "TypeScript errors",
+      "Testing",
+      "Git workflow",
+      "Performance optimization"
+    ]
+  }
+}
